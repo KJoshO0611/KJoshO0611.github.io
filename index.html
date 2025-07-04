@@ -203,12 +203,12 @@
                 <button id="processBtn" onclick="processCSV()" class="process-btn" disabled>
                 📊 Process Data
             </button>
-            </div>
 
                         <div class="filter-container">
                 <div>
                     <label for="dateRangeFilter">Filter reports by:</label>
                     <select id="dateRangeFilter">
+                        <option value="24h">Past 24 hours</option>
                         <option value="3" selected>Past 3 Months</option>
                         <option value="1">Past 1 Month</option>
                         <option value="6">Past 6 Months</option>
@@ -338,7 +338,7 @@
                                 const isCommentColumn = keyLower.startsWith('comment') || keyLower.includes('(comment)');
                                 if (isCommentColumn) {
                                     if (value.trim()) {
-                                        allCommentsText += (allCommentsText ? ';;;' : '') + value;
+                                        allCommentsText += (allCommentsText ? ';;; ' : '') + value;
                                     }
                                 } else if (!obj.hasOwnProperty(header)) {
                                     obj[header] = value;
@@ -384,7 +384,11 @@
 
             if (dateFilterValue !== 'all') {
                 dateLimit = new Date();
-                dateLimit.setMonth(dateLimit.getMonth() - parseInt(dateFilterValue));
+                if (dateFilterValue === '24h') {
+                    dateLimit.setHours(dateLimit.getHours() - 24);
+                } else {
+                    dateLimit.setMonth(dateLimit.getMonth() - parseInt(dateFilterValue));
+                }
             }
 
             const statusFilteredRows = statusFilterValue === 'all'

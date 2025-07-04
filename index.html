@@ -251,6 +251,10 @@
                     <h3>CS Reports</h3>
                     <div class="number" id="csReports">0</div>
                 </div>
+                <div class="stat-card">
+                    <h3>High Comment Activity Day</h3>
+                    <div class="number" id="highActivityDay">N/A</div>
+                </div>
             </div>
 
             <div class="table-container">
@@ -274,6 +278,23 @@
                 </table>
             </div>
 
+            <div id="highActivitySection" style="display: none; margin-top: 30px;">
+                <h3 style="text-align: center;">High Activity Reports (3+ reports in a single day)</h3>
+                <div class="table-container">
+                    <table id="highActivityTable">
+                        <thead>
+                            <tr>
+                                <th>Issue Key</th>
+                                <th>Date</th>
+                                <th>Report Count</th>
+                            </tr>
+                        </thead>
+                        <tbody id="highActivityTableBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <div class="download-section">
                 <h3>Export Processed Data</h3>
                 <button onclick="downloadCSV()" class="download-btn">
@@ -282,6 +303,9 @@
                 <button onclick="copyToClipboard()" class="download-btn">
                     📋 Copy to Clipboard
                 </button>
+                <button onclick="downloadHighActivityCSV()" class="download-btn" id="downloadHighActivityBtn" style="display: none;">
+                    🚀 Export High Activity CSV
+                </button>
             </div>
         </div>
     </div>
@@ -289,6 +313,7 @@
     <script>
         let processedData = [];
         let rawData = [];
+        let highActivityReports = [];
 
         // Enable process button when file is selected
         document.getElementById('csvFile').addEventListener('change', function(e) {
@@ -298,15 +323,15 @@
 
         document.getElementById('dateRangeFilter').addEventListener('change', function() {
             if (rawData && rawData.length > 0) {
-                processData();
-                displayResults();
+                const dateLimit = processData();
+                displayResults(dateLimit);
             }
         });
 
         document.getElementById('statusFilter').addEventListener('change', function() {
             if (rawData && rawData.length > 0) {
-                processData();
-                displayResults();
+                const dateLimit = processData();
+                displayResults(dateLimit);
             }
         });
 
@@ -359,8 +384,8 @@
                             statusFilter.appendChild(option);
                         });
 
-                        processData();
-                        displayResults();
+                        const dateLimit = processData();
+                        displayResults(dateLimit);
                     } catch (error) {
                         console.error('Error processing data:', error);
                         alert('Error processing the CSV file. Please check the format.');
@@ -419,6 +444,8 @@
                     allComments: allComments
                 };
             });
+
+            return dateLimit;
         }
 
         function extractComments(row) {
@@ -523,16 +550,62 @@
             return Object.entries(typeCounts).map(([type, count]) => `${count} ${type}`).join(', ') || 'No typed reports';
         }
 
-        function displayResults() {
+        function findHighActivityReports(data, dateLimit) {
+            const commentsByDayAndIssue = {}; // { 'YYYY-MM-DD': { issueKey: count } }
+
+            data.forEach(row => {
+                const issueKey = row['Issue key'];
+                if (!issueKey) return;
+
+                const comments = extractComments(row);
+                comments.forEach(comment => {
+                    if (!comment || !comment.date || isNaN(comment.date.getTime())) return;
+                    if (dateLimit && new Date(comment.date) <= dateLimit) return; // Apply date filter
+
+                    const dateKey = comment.date.toISOString().split('T')[0];
+                    if (!commentsByDayAndIssue[dateKey]) commentsByDayAndIssue[dateKey] = {};
+                    if (!commentsByDayAndIssue[dateKey][issueKey]) commentsByDayAndIssue[dateKey][issueKey] = 0;
+                    commentsByDayAndIssue[dateKey][issueKey]++;
+                });
+            });
+
+            const highActivityReports = [];
+            for (const dateKey in commentsByDayAndIssue) {
+                for (const issueKey in commentsByDayAndIssue[dateKey]) {
+                    const count = commentsByDayAndIssue[dateKey][issueKey];
+                    if (count >= 3) {
+                        highActivityReports.push({
+                            issueKey: issueKey,
+                            date: new Date(dateKey),
+                            count: count
+                        });
+                    }
+                }
+            }
+
+            highActivityReports.sort((a, b) => {
+                const dateComparison = b.date - a.date;
+                if (dateComparison !== 0) return dateComparison;
+                return b.count - a.count;
+            });
+
+            return highActivityReports;
+        }
+
+        function displayResults(dateLimit) {
             const totalIssues = processedData.length;
             const totalReports = _.sumBy(processedData, 'totalReports');
             const vipReports = _.sumBy(processedData, 'vipReports');
             const csReports = _.sumBy(processedData, 'csReports');
+            
+            window.highActivityReports = findHighActivityReports(rawData, dateLimit);
+            const highActivityDay = window.highActivityReports.length > 0 ? formatDate(window.highActivityReports[0].date) : 'N/A';
 
             document.getElementById('totalIssues').textContent = totalIssues;
             document.getElementById('totalReports').textContent = totalReports;
             document.getElementById('vipReports').textContent = vipReports;
             document.getElementById('csReports').textContent = csReports;
+            document.getElementById('highActivityDay').textContent = highActivityDay;
 
             const commentColumns = (window.originalHeaders || []).filter(h => h.trim().toLowerCase().startsWith('comment') || h.trim().toLowerCase().includes('(comment)'));
             const commentColumnCount = new Set(commentColumns).size;
@@ -547,7 +620,7 @@
                 tr.className = getStatusClass(row.status);
                 tr.innerHTML = `
                     <td title="${row.summary}">${truncateText(row.summary, 50)}</td>
-                    <td><a href="https://jira.scopely.com/browse/${row.issueKey}" target="_blank">${row.issueKey}</a></td>
+                    <td><a href="https://jira.scopely.io/browse/${row.issueKey}" target="_blank">${row.issueKey}</a></td>
                     <td>${row.status}</td>
                     <td>${row.created}</td>
                     <td>${row.updated}</td>
@@ -559,6 +632,28 @@
                 `;
                 tableBody.appendChild(tr);
             });
+
+            const highActivitySection = document.getElementById('highActivitySection');
+            const highActivityTableBody = document.getElementById('highActivityTableBody');
+            highActivityTableBody.innerHTML = '';
+
+            const downloadHighActivityBtn = document.getElementById('downloadHighActivityBtn');
+            if (window.highActivityReports.length > 0) {
+                highActivitySection.style.display = 'block';
+                downloadHighActivityBtn.style.display = 'inline-block';
+                window.highActivityReports.forEach(report => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td><a href="https://jira.scopely.io/browse/${report.issueKey}" target="_blank">${report.issueKey}</a></td>
+                        <td>${formatDate(report.date)}</td>
+                        <td>${report.count}</td>
+                    `;
+                    highActivityTableBody.appendChild(tr);
+                });
+            } else {
+                highActivitySection.style.display = 'none';
+                downloadHighActivityBtn.style.display = 'none';
+            }
         }
 
         function getStatusClass(status) {
@@ -617,6 +712,35 @@
                 console.error('Failed to copy: ', err);
                 alert('Failed to copy to clipboard. Please try the download option.');
             });
+        }
+
+        function downloadHighActivityCSV() {
+            const csvContent = generateHighActivityCSVContent();
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', 'high_activity_reports.csv');
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        }
+
+        function generateHighActivityCSVContent() {
+            const headers = ['Issue Key', 'Date', 'Report Count'];
+            let csv = headers.join(',') + '\n';
+            window.highActivityReports.forEach(report => {
+                const csvRow = [
+                    report.issueKey,
+                    formatDate(report.date),
+                    report.count
+                ];
+                csv += csvRow.join(',') + '\n';
+            });
+            return csv;
         }
         </script>
     </body>
